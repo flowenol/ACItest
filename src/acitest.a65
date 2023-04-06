@@ -1,0 +1,237 @@
+#ifndef BASE
+#define BASE $300
+#endif
+
+#ifndef SERIAL_BASE
+#define SERIAL_BASE $C300
+#endif
+
+; Apple-1 Cassette Interface locations
+#define tape_in $C081
+
+
+; Apple-1 Serial Interface locations
+#define serial_ready SERIAL_BASE
+#define serial_read  SERIAL_BASE + $80
+#define serial_write SERIAL_BASE + $81
+#define serial_reset_routine SERIAL_BASE + $23A
+
+; Wozmon address
+#define monitor $FF1F
+#define echo    $FFEF
+
+; ZP variables
+
+; Last tape input state
+#define last_state $29
+
+; Number of test runs
+#define test_num $31
+
+; Checksum running address variables
+#define running_addr_l $32
+#define running_addr_h $33
+
+; Begin address of comparison block
+#define hex1_l $34
+#define hex1_h $35
+
+; End address of comparison block
+#define hex2_l $36
+#define hex2_h $37
+
+; checksum
+#define checksum $38
+#define running_checksum $39
+
+; string printing variables
+#define str_len     $40
+#define str_addr    $41
+
+* = BASE
+acitest
+    cld
+    jsr serial_reset_routine
+    jsr clear_running_addr
+    jsr calculate_checksum
+    jsr clear_running_addr
+    jsr read_tape
+    jsr print_results
+    jmp monitor
+
+clear_running_addr
+    lda hex1_l                  ; copy begin address of comparison block to running address
+    sta running_addr_l
+    lda hex1_h
+    sta running_addr_h
+    rts
+
+print_results
+    lda checksum
+    cmp running_checksum
+    bne print_results_fail
+
+    lda #<pass_str
+    sta str_addr
+    lda #>pass_str
+    sta str_addr+1
+    jsr print_str
+    rts
+print_results_fail:
+    lda #<fail_str
+    sta str_addr
+    lda #>fail_str
+    sta str_addr+1
+    jsr print_str
+    rts
+
+;-------------------------------------------------------------------------
+; Read from tape
+;-------------------------------------------------------------------------
+
+read_tape
+    sta serial_write
+    nop
+    nop
+    nop
+    sta serial_write
+    lda serial_read
+    nop
+    nop
+    nop
+    lda #0                      ; Clear running checksum
+    sta running_checksum
+    jsr fullcycle               ; Wait until full cycle is detected
+    jsr fullcycle               ; Synchronize with full cycle
+
+notstart
+    ldy #31                     ; Try to detect the much shorter
+    jsr cmplevel                ; start bit
+    bcs notstart                ; Start bit not detected yet!
+
+    jsr cmplevel                ; Wait for 2nd phase of start bit
+
+    ldy #58                     ; Set threshold value in middle
+rdbyte
+    ldx #8                      ; Receiver 8 bits
+rdbit
+    pha
+    jsr fullcycle               ; Detect a full cycle
+    pla
+    rol                         ; roll new bit into result
+    ldy #57                     ; Set threshold value in middle
+    dex                         ; Decrement bit counter
+    bne rdbit                   ; Read next bit!
+
+    clc
+    adc running_checksum        ; Add byte to checksum
+    sta running_checksum
+
+    jsr incaddr                 ; Increment address
+    ldy #53                     ; Compensate threshold with workload
+    bcc rdbyte                  ; Do next byte if not done yet!
+    rts                         ; Return
+
+fullcycle
+    jsr cmplevel                ; Wait for two level changes
+cmplevel
+    dey                         ; Decrement time counter
+    lda tape_in                 ; Get Tape In data
+    cmp last_state              ; Same as before?
+    beq cmplevel                ; Yes!
+    sta last_state              ; Save new data
+
+    cpy #128                    ; Compare threshold
+    rts
+
+incaddr
+    lda running_addr_l          ; Compare current address with
+    cmp hex2_l                  ; end address
+    lda running_addr_h
+    sbc hex2_h
+    inc running_addr_l          ; And increment current address
+    bne nocarry                 ; No carry to MSB!
+    inc running_addr_h
+nocarry
+    rts
+
+
+calculate_checksum
+    ldy #$00                    ; set Y=0 for indirect Y mode
+    sty checksum                ; and clear checksum variables
+
+    lda #$00                    ; initialize running checksum
+    pha
+add_to_checksum
+    clc                         ; clear carry flag
+    pla                         ; pull running checksum
+    adc (running_addr_l),Y      ; add byte to running cheksum
+    pha                         ; push running checksum
+
+    jsr incaddr                 ; increment running address
+    bcc add_to_checksum         ; if not done then repeat
+
+    pla                         ; otherwise pull and store running checksum
+    sta checksum
+
+    rts
+
+
+add_to_checksum
+    clc                         ; clear carry flag
+
+    pla                         ; pull running checksum
+    adc (running_addr_l),Y      ; add byte to running cheksum
+    pha                         ; push running checksum
+
+    lda running_addr_l          ; check if low running address byte is equal to
+    cmp hex2_l                  ; low end address byte
+    bne add_increment           ; if not, increment running address
+
+    lda running_addr_h          ; check if high running address byte is equal to
+    cmp hex2_h                  ; high end address byte
+    bne add_increment           ; if not, increment running address
+
+    pla                         ; otherwise pull and store running checksu,m
+    sta checksum
+
+    rts
+
+add_increment
+    ldx #running_addr_l
+    jsr increment_16bit
+    jmp add_to_checksum
+
+
+
+;-------------------------------------------------------------------------
+; tool routines
+;-------------------------------------------------------------------------
+print_str
+    ldy #$00                    ; store string length
+    lda (str_addr),Y
+    sta str_len
+
+    ldx #str_addr               ; skip length byte from string address
+    jsr increment_16bit
+
+print_str_loop
+    lda (str_addr),Y
+    jsr echo
+    iny
+    cpy str_len
+    bne print_str_loop
+    rts
+
+increment_16bit
+    inc $00,X
+    bne increment_16bit_done
+    inx
+    inc $00,X
+increment_16bit_done
+    rts
+
+
+; Static data
+pass_str .byt $06,$0D,"PASS",$0D
+fail_str .byt $06,$0D,"FAIL",$0D
