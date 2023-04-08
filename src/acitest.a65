@@ -16,9 +16,10 @@
 #define serial_write SERIAL_BASE + $81
 #define serial_reset_routine SERIAL_BASE + $23A
 
-; Wozmon address
+; Wozmon addresses
 #define monitor $FF1F
 #define echo    $FFEF
+#define prhex   $FFE5
 
 ; ZP variables
 
@@ -26,7 +27,11 @@
 #define last_state $29
 
 ; Number of test runs
-#define test_num $31
+#define runs_num $30
+#define current_run $3A
+#define current_run_bcd $3B
+#define passed_runs_bcd $3C
+#define failed_runs_bcd $3D
 
 ; Checksum running address variables
 #define running_addr_l $32
@@ -51,38 +56,67 @@
 * = BASE
 acitest
     cld
-    jsr serial_reset_routine
-    jsr clear_running_addr
-    jsr calculate_checksum
-    jsr clear_running_addr
-    jsr read_tape
-    jsr print_results
+    jsr clear_running_addr    ; clear addresses for checksum calculation
+    jsr calculate_checksum    ; calculate checksum
+    lda #$00                  ; clear current run counters
+    sta current_run
+    sta current_run_bcd
+    sta passed_runs_bcd
+    sta failed_runs_bcd
+
+acitest_loop
+    jsr serial_reset_routine  ; reset serial interface
+    jsr clear_running_addr    ; clear addresses for running checkusm calculation
+    jsr read_tape             ; read the audio data
+
+    inc current_run           ; increment current run
+    ldx #current_run_bcd
+    jsr increment_bcd
+
+    jsr print_result          ; print results
+
+    lda runs_num              ; check if we should break the loop
+    cmp current_run
+    bne acitest_loop
+acitest_end
     jmp monitor
 
+
 clear_running_addr
-    lda hex1_l                  ; copy begin address of comparison block to running address
+    lda hex1_l                 ; copy begin address of comparison block to running address
     sta running_addr_l
     lda hex1_h
     sta running_addr_h
     rts
 
-print_results
+print_result
     lda checksum
     cmp running_checksum
-    bne print_results_fail
+    bne print_result_fail
+
+print_result_passed
+    ldx #passed_runs_bcd
+    jsr increment_bcd
 
     lda #<pass_str
     sta str_addr
     lda #>pass_str
     sta str_addr+1
     jsr print_str
-    rts
-print_results_fail:
+    jmp print_run
+
+print_result_fail
+    ldx #failed_runs_bcd
+    jsr increment_bcd
+
     lda #<fail_str
     sta str_addr
     lda #>fail_str
     sta str_addr+1
     jsr print_str
+print_run
+    lda current_run_bcd
+    jsr print_number_bcd
     rts
 
 ;-------------------------------------------------------------------------
@@ -90,12 +124,14 @@ print_results_fail:
 ;-------------------------------------------------------------------------
 
 read_tape
-    sta serial_write
+    sta serial_write            ; Enable serial write mode
+    nop                         ; Wait 4 cycles for the mode to stabilize
     nop
     nop
     nop
-    sta serial_write
-    lda serial_read
+    sta serial_write            ; Signal the start of the tape read
+    lda serial_read             ; Switch to the read mode
+    nop                         ; Wait 4 cycles for the mode to stabilize
     nop
     nop
     nop
@@ -127,7 +163,7 @@ rdbit
     adc running_checksum        ; Add byte to checksum
     sta running_checksum
 
-    jsr incaddr                 ; Increment address
+    jsr inc_running_addr        ; Increment address
     ldy #53                     ; Compensate threshold with workload
     bcc rdbyte                  ; Do next byte if not done yet!
     rts                         ; Return
@@ -144,7 +180,7 @@ cmplevel
     cpy #128                    ; Compare threshold
     rts
 
-incaddr
+inc_running_addr
     lda running_addr_l          ; Compare current address with
     cmp hex2_l                  ; end address
     lda running_addr_h
@@ -168,40 +204,13 @@ add_to_checksum
     adc (running_addr_l),Y      ; add byte to running cheksum
     pha                         ; push running checksum
 
-    jsr incaddr                 ; increment running address
+    jsr inc_running_addr        ; increment running address
     bcc add_to_checksum         ; if not done then repeat
 
     pla                         ; otherwise pull and store running checksum
     sta checksum
 
     rts
-
-
-add_to_checksum
-    clc                         ; clear carry flag
-
-    pla                         ; pull running checksum
-    adc (running_addr_l),Y      ; add byte to running cheksum
-    pha                         ; push running checksum
-
-    lda running_addr_l          ; check if low running address byte is equal to
-    cmp hex2_l                  ; low end address byte
-    bne add_increment           ; if not, increment running address
-
-    lda running_addr_h          ; check if high running address byte is equal to
-    cmp hex2_h                  ; high end address byte
-    bne add_increment           ; if not, increment running address
-
-    pla                         ; otherwise pull and store running checksu,m
-    sta checksum
-
-    rts
-
-add_increment
-    ldx #running_addr_l
-    jsr increment_16bit
-    jmp add_to_checksum
-
 
 
 ;-------------------------------------------------------------------------
@@ -231,7 +240,32 @@ increment_16bit
 increment_16bit_done
     rts
 
+print_number_bcd
+    pha
+    clc
+    and #$F0
+    rol
+    rol
+    rol
+    rol
+    rol
+    jsr prhex
+print_next_digit
+    pla
+    and #$0F
+    jsr prhex
+print_number_done
+    rts
+
+increment_bcd
+    sed                       ; enable decimal mode
+    clc                       ; increment current run number in BCD
+    lda #$01
+    adc $00,X
+    sta $00,X
+    cld                       ; disable decimal mode
+    rts
 
 ; Static data
-pass_str .byt $06,$0D,"PASS",$0D
-fail_str .byt $06,$0D,"FAIL",$0D
+pass_str .byt $06,$0D,"PASS "
+fail_str .byt $06,$0D,"FAIL "
