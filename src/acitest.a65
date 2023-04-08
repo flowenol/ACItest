@@ -9,7 +9,6 @@
 ; Apple-1 Cassette Interface locations
 #define tape_in $C081
 
-
 ; Apple-1 Serial Interface locations
 #define serial_ready SERIAL_BASE
 #define serial_read  SERIAL_BASE + $80
@@ -53,6 +52,8 @@
 #define str_len     $40
 #define str_addr    $41
 
+#define start_signal 'S'
+
 * = BASE
 acitest
     cld
@@ -79,7 +80,9 @@ acitest_loop
     cmp current_run
     bne acitest_loop
 acitest_end
+    jsr print_summary
     jmp monitor
+
 
 
 clear_running_addr
@@ -89,13 +92,14 @@ clear_running_addr
     sta running_addr_h
     rts
 
+
 print_result
     lda checksum
     cmp running_checksum
     bne print_result_fail
 
 print_result_passed
-    ldx #passed_runs_bcd
+    ldx #passed_runs_bcd       ; increment passed runs number
     jsr increment_bcd
 
     lda #<pass_str
@@ -106,7 +110,7 @@ print_result_passed
     jmp print_run
 
 print_result_fail
-    ldx #failed_runs_bcd
+    ldx #failed_runs_bcd       ; increment failed runs number
     jsr increment_bcd
 
     lda #<fail_str
@@ -115,15 +119,47 @@ print_result_fail
     sta str_addr+1
     jsr print_str
 print_run
-    lda current_run_bcd
+    lda current_run_bcd        ; print current run number
     jsr print_number_bcd
     rts
+
+
+print_summary
+    lda #<summary_str
+    sta str_addr
+    lda #>summary_str
+    sta str_addr+1
+    jsr print_str
+
+    lda current_run_bcd
+    jsr print_number_bcd
+
+    lda #<passed_summary_str
+    sta str_addr
+    lda #>passed_summary_str
+    sta str_addr+1
+    jsr print_str
+
+    lda passed_runs_bcd
+    jsr print_number_bcd
+
+    lda #<failed_summary_str
+    sta str_addr
+    lda #>failed_summary_str
+    sta str_addr+1
+    jsr print_str
+
+    lda failed_runs_bcd
+    jsr print_number_bcd
+    rts
+
 
 ;-------------------------------------------------------------------------
 ; Read from tape
 ;-------------------------------------------------------------------------
 
 read_tape
+    lda #start_signal
     sta serial_write            ; Enable serial write mode
     nop                         ; Wait 4 cycles for the mode to stabilize
     nop
@@ -232,14 +268,6 @@ print_str_loop
     bne print_str_loop
     rts
 
-increment_16bit
-    inc $00,X
-    bne increment_16bit_done
-    inx
-    inc $00,X
-increment_16bit_done
-    rts
-
 print_number_bcd
     pha
     clc
@@ -257,6 +285,14 @@ print_next_digit
 print_number_done
     rts
 
+increment_16bit
+    inc $00,X
+    bne increment_16bit_done
+    inx
+    inc $00,X
+increment_16bit_done
+    rts
+
 increment_bcd
     sed                       ; enable decimal mode
     clc                       ; increment current run number in BCD
@@ -269,3 +305,6 @@ increment_bcd
 ; Static data
 pass_str .byt $06,$0D,"PASS "
 fail_str .byt $06,$0D,"FAIL "
+summary_str .byt $10,$0D,"COMPLETED RUNS "
+passed_summary_str .byt $0D,$0D,"PASSED RUNS "
+failed_summary_str .byt $0D,$0D,"FAILED RUNS "
