@@ -204,7 +204,7 @@ rdbit
     bcc rdbyte                  ; Do next byte if not done yet!
 
 read_tape_end
-    lda serial_ready            ; wait until the playback is over
+    lda serial_ready            ; Wait until the playback is over
     beq read_tape_end
     rts                         ; Return
 
