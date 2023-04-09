@@ -44,6 +44,7 @@ def wait_for_start_signal(port: str):
 def signal_playback_finished(port: str):
     with get_serial(port) as s:
         s.write(bytes(ord('S')))
+        s.flush()
         
 
 def playback(recording: str):

@@ -171,7 +171,7 @@ read_tape
     nop
     nop
     nop
-    lda #0                      ; Clear running checksum
+    lda #$0                     ; Clear running checksum
     sta running_checksum
     jsr fullcycle               ; Wait until full cycle is detected
     jsr fullcycle               ; Synchronize with full cycle
@@ -202,6 +202,10 @@ rdbit
     jsr inc_running_addr        ; Increment address
     ldy #53                     ; Compensate threshold with workload
     bcc rdbyte                  ; Do next byte if not done yet!
+
+read_tape_end
+    lda serial_ready            ; wait until the playback is over
+    beq read_tape_end
     rts                         ; Return
 
 fullcycle
