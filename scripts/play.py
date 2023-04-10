@@ -1,3 +1,4 @@
+import argparse
 import os
 import sys
 import serial
@@ -8,11 +9,6 @@ os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = "hide"
 import pygame
 
 played_loops: int  = 0
-
-def print_usage_and_exit():
-    print('Usage: python play.py <serial_device> <wav file>', file=sys.stderr)
-    exit(1)
-
 
 def get_serial(port: str) -> serial.Serial:
     s = serial.Serial()
@@ -47,9 +43,10 @@ def signal_playback_finished(port: str):
         s.flush()
         
 
-def playback(recording: str):
+def playback(recording: str, volume: float = 1.0):
     pygame.mixer.init()
     pygame.mixer.music.load(recording)
+    pygame.mixer.music.set_volume(volume)
     pygame.mixer.music.play()
     while pygame.mixer.music.get_busy():
         pass
@@ -67,8 +64,18 @@ pip3 install pygame
 """
 if __name__ == "__main__":
 
-    if len(sys.argv) != 3:
-        print_usage_and_exit()
+    def volume_range_type(arg: int):
+        volume = int(arg)
+        if volume < 1 or volume > 100:
+            raise argparse.ArgumentTypeError(f"Volume: {volume} is not in range [0, 100]")
+        return volume
+
+    argparser = argparse.ArgumentParser()
+    argparser.add_argument("--device", type=str, required=True, help="path to the serial device")
+    argparser.add_argument("--volume", type=volume_range_type, default=100, help="the desired volume level (0-100)")     
+    argparser.add_argument("file", type=str, nargs=1, help="path to the program sound file")
+
+    args = argparser.parse_args()
 
     def print_played_loops_and_exit(status: int):
         print(f'\nPlayed {played_loops} times', file=sys.stderr)
@@ -78,7 +85,7 @@ if __name__ == "__main__":
     signal.signal(signal.SIGINT, lambda s, fr: print_played_loops_and_exit(1))
 
     while True:
-        wait_for_start_signal(sys.argv[1])
-        playback(sys.argv[2])
-        signal_playback_finished(sys.argv[1])
+        wait_for_start_signal(args.device)
+        playback(args.file[0], args.volume / 100.0)
+        signal_playback_finished(args.device)
         played_loops += 1
