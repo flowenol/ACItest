@@ -92,7 +92,6 @@ clear_running_addr
     sta running_addr_h
     rts
 
-
 print_result
     lda checksum
     cmp running_checksum
@@ -122,7 +121,6 @@ print_run
     lda current_run_bcd        ; print current run number
     jsr print_number_bcd
     rts
-
 
 print_summary
     lda #<summary_str
@@ -171,19 +169,19 @@ read_tape
     nop
     nop
     nop
-    lda #$0                     ; Clear running checksum
+    lda #$00                    ; Clear running checksum
     sta running_checksum
     jsr fullcycle               ; Wait until full cycle is detected
     jsr fullcycle               ; Synchronize with full cycle
 
 notstart
-    ldy #31                     ; Try to detect the much shorter
+    ldy #18                     ; Try to detect the much shorter (orig #31)*0.6
     jsr cmplevel                ; start bit
     bcs notstart                ; Start bit not detected yet!
 
     jsr cmplevel                ; Wait for 2nd phase of start bit
 
-    ldy #58                     ; Set threshold value in middle
+    ldy #34                     ; Set threshold value in middle (orig #58)*0.6
 rdbyte
     ldx #8                      ; Receiver 8 bits
 rdbit
@@ -191,7 +189,8 @@ rdbit
     jsr fullcycle               ; Detect a full cycle
     pla
     rol                         ; roll new bit into result
-    ldy #57                     ; Set threshold value in middle
+    ldy #33                     ; Set threshold value in middle (orig #57)*0.6
+
     dex                         ; Decrement bit counter
     bne rdbit                   ; Read next bit!
 
@@ -200,7 +199,7 @@ rdbit
     sta running_checksum
 
     jsr inc_running_addr        ; Increment address
-    ldy #53                     ; Compensate threshold with workload
+    ldy #31                     ; Compensate threshold with workload (orig #53)*0.6
     bcc rdbyte                  ; Do next byte if not done yet!
 
 read_tape_end
@@ -211,6 +210,9 @@ read_tape_end
 fullcycle
     jsr cmplevel                ; Wait for two level changes
 cmplevel
+    lda serial_ready            ; Check if transmission over
+    bne cmp_level_end           ; Originally 12 cycles, now 18 cycles to beq
+                                ; All thresholds must be adjusted to ~60% 
     dey                         ; Decrement time counter
     lda tape_in                 ; Get Tape In data
     cmp last_state              ; Same as before?
@@ -218,6 +220,9 @@ cmplevel
     sta last_state              ; Save new data
 
     cpy #128                    ; Compare threshold
+    rts
+cmp_level_end
+    clc
     rts
 
 inc_running_addr
