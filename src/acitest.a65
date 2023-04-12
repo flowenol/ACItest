@@ -25,6 +25,8 @@
 ; Last tape input state
 #define last_state $29
 
+#define volume_level_bcd $2A
+
 ; Number of test runs
 #define runs_num $30
 #define current_run $3A
@@ -49,10 +51,12 @@
 #define running_checksum $39
 
 ; string printing variables
-#define str_len     $40
-#define str_addr    $41
+#define str_len    $40
+#define str_addr   $41
 
+; signals
 #define start_signal 'S'
+#define volume_signal 'V'
 
 * = BASE
 acitest
@@ -65,8 +69,9 @@ acitest
     sta passed_runs_bcd
     sta failed_runs_bcd
 
+    jsr get_volume_level      ; get volume level
+
 acitest_loop
-    jsr serial_reset_routine  ; reset serial interface
     jsr clear_running_addr    ; clear addresses for running checkusm calculation
     jsr read_tape             ; read the audio data
 
@@ -86,10 +91,31 @@ acitest_end
 
 
 clear_running_addr
-    lda hex1_l                 ; copy begin address of comparison block to running address
+    lda hex1_l                  ; copy begin address of comparison block to running address
     sta running_addr_l
     lda hex1_h
     sta running_addr_h
+    rts
+
+get_volume_level
+    jsr serial_reset_routine    ; reset serial
+    lda #volume_signal
+    sta serial_write            ; Enable serial write mode
+    nop                         ; Wait 4 cycles for the mode to stabilize
+    nop
+    nop
+    nop
+    sta serial_write            ; Signal the request for volume level
+    lda serial_read             ; Switch to the read mode
+    nop                         ; Wait 4 cycles for the mode to stabilize
+    nop
+    nop
+    nop
+get_volume_wait
+    lda serial_ready
+    beq get_volume_wait
+    lda serial_read
+    sta volume_level_bcd
     rts
 
 print_result
@@ -123,6 +149,15 @@ print_run
     rts
 
 print_summary
+    lda #<volume_str
+    sta str_addr
+    lda #>volume_str
+    sta str_addr+1
+    jsr print_str
+
+    lda volume_level_bcd
+    jsr print_number_bcd
+
     lda #<summary_str
     sta str_addr
     lda #>summary_str
@@ -157,6 +192,7 @@ print_summary
 ;-------------------------------------------------------------------------
 
 read_tape
+    jsr serial_reset_routine
     lda #start_signal
     sta serial_write            ; Enable serial write mode
     nop                         ; Wait 4 cycles for the mode to stabilize
@@ -212,7 +248,7 @@ fullcycle
 cmplevel
     lda serial_ready            ; Check if transmission over
     bne cmp_level_end           ; Originally 12 cycles, now 18 cycles to beq
-                                ; All thresholds must be adjusted to ~60% 
+                                ; All thresholds must be adjusted to ~60%
     dey                         ; Decrement time counter
     lda tape_in                 ; Get Tape In data
     cmp last_state              ; Same as before?
@@ -278,6 +314,15 @@ print_str_loop
     rts
 
 print_number_bcd
+    cmp #$A0
+    bne print_two_digit_bcd
+    lda #$31
+    jsr echo
+    lda #$30
+    jsr echo
+    jsr echo
+    rts
+print_two_digit_bcd
     pha
     clc
     and #$F0
@@ -314,6 +359,7 @@ increment_bcd
 ; Static data
 pass_str .byt $06,$0D,"PASS "
 fail_str .byt $06,$0D,"FAIL "
-summary_str .byt $10,$0D,"COMPLETED RUNS "
-passed_summary_str .byt $0D,$0D,"PASSED RUNS "
-failed_summary_str .byt $0D,$0D,"FAILED RUNS "
+summary_str .byt $11,$0D,"COMPLETED RUNS: "
+volume_str .byt $0F,$0D,"VOLUME LEVEL: "
+passed_summary_str .byt $0E,$0D,"PASSED RUNS: "
+failed_summary_str .byt $0E,$0D,"FAILED RUNS: "
