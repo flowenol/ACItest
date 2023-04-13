@@ -99,18 +99,15 @@ clear_running_addr
 
 get_volume_level
     jsr serial_reset_routine    ; reset serial
-    lda #volume_signal
+    
     sta serial_write            ; Enable serial write mode
-    nop                         ; Wait 4 cycles for the mode to stabilize
-    nop
-    nop
-    nop
+get_volume_serial
+    lda serial_ready
+    beq get_volume_serial       ; Wait for the mode to stabilize
+
+    lda #volume_signal
     sta serial_write            ; Signal the request for volume level
     lda serial_read             ; Switch to the read mode
-    nop                         ; Wait 4 cycles for the mode to stabilize
-    nop
-    nop
-    nop
 get_volume_wait
     lda serial_ready
     beq get_volume_wait
@@ -193,18 +190,13 @@ print_summary
 
 read_tape
     jsr serial_reset_routine
-    lda #start_signal
     sta serial_write            ; Enable serial write mode
-    nop                         ; Wait 4 cycles for the mode to stabilize
-    nop
-    nop
-    nop
+read_tape_serial
+    lda serial_ready
+    beq read_tape_serial        ; Wait for the mode to stabilize
+    lda #start_signal
     sta serial_write            ; Signal the start of the tape read
     lda serial_read             ; Switch to the read mode
-    nop                         ; Wait 4 cycles for the mode to stabilize
-    nop
-    nop
-    nop
     lda #$00                    ; Clear running checksum
     sta running_checksum
     jsr fullcycle               ; Wait until full cycle is detected

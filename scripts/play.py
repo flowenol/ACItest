@@ -57,7 +57,6 @@ def signal_playback_finished():
 
 def signal_volume_level():
     def volume_level_to_bcd():
-        global volume_level
         assert volume_level >= 0 and volume_level <= 100
         return (((int(volume_level / 10) & 0x0f) << 4) | (int(volume_level % 10) & 0x0f)).to_bytes(1, 'little')
             
